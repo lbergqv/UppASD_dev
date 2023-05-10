@@ -12,6 +12,6 @@ echo  " No files will be installed outside this folder  "
 #read -p "       Press any key to continue... "
 echo  "-------------------------------------------------"
 echo  "  *Creating makefile and object dependencies    "
-python source/make/generateDependencies.py > /dev/null
+python3 source/make/generateDependencies.py > /dev/null
 echo  "  *Scanning the system for available compilers   "
-python source/make/suggestProfiles.py
+python3 source/make/suggestProfiles.py

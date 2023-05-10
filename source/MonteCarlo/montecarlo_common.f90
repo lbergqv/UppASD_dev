@@ -253,12 +253,13 @@ contains
          if(lsf_metric==1) then
             lmetric=1.0_dblprec
          elseif(lsf_metric==2) then
-            lmetric=(mmom(iflip,k)/newmmom)**2
+            lmetric=(newmmom/mmom(iflip,k))**2
          else
-            lmetric=(mmom(iflip,k)/newmmom)
+            lmetric=(newmmom/mmom(iflip,k))
          endif
-         des=-log(lmetric)/beta
-         if(de<=des .or. flipprob<exp(-beta*de)/lmetric) then
+!         des=log(lmetric)/beta
+!         if(de<=des .or. flipprob<exp(-beta*de)*lmetric) then
+         if(flipprob<exp(-beta*de)*lmetric) then
             mmom(iflip,k) = newmmom
             emom(:,iflip,k)=newmom(:)
             emomM(:,iflip,k)=mmom(iflip,k)*newmom(:)
@@ -355,11 +356,12 @@ contains
          if(lsf_metric==1) then
             lmetric=1.0_dblprec
          elseif(lsf_metric==2) then
-            lmetric=(mmom(iflip,k)/newmmom)**2
+            lmetric=(newmmom/mmom(iflip,k))**2
          else
-            lmetric=(mmom(iflip,k)/newmmom)
+            lmetric=(newmmom/mmom(iflip,k))
          endif
-         if(flipprob<1.0_dblprec/(1.0_dblprec+lmetric*exp(beta*de))) then
+!         if(flipprob<1.0_dblprec/(1.0_dblprec+lmetric*exp(beta*de))) then
+         if(flipprob<(lmetric*exp(-beta*de))/(1.0_dblprec+lmetric*exp(-beta*de))) then
             mmom(iflip,k) = newmmom
             emom(:,iflip,k)=newmom(:)
             emomM(:,iflip,k)=mmom(iflip,k)*newmom(:)
@@ -404,12 +406,12 @@ contains
       if (zstheta < 1.d-6) then
          !zctheta=0.999950_dblprec
          !zctheta=0.999999995_dblprec
-         zctheta=0.9999999999995_dblprec
+         !zctheta=0.9999999999995_dblprec
          zstheta=1.d-6
-         !zcphi=1.0_dblprec
-         !zsphi=0.0_dblprec
-         zcphi=zfc(1)/(zarg*zstheta)
-         zsphi=zfc(2)/(zarg*zstheta)
+         zcphi=1.0_dblprec
+         zsphi=0.0_dblprec
+!         zcphi=zfc(1)/(zarg*zstheta)
+!         zsphi=zfc(2)/(zarg*zstheta)
       else
          zcphi=zfc(1)/(zarg*zstheta)
          zsphi=zfc(2)/(zarg*zstheta)
@@ -495,7 +497,7 @@ contains
       integer :: im1,ip1,im2,ip2
 
       !.. Local arrays
-      real(dblprec), dimension(3) :: beff_t, trialmom
+      real(dblprec), dimension(3) :: beff_t, trialmom, btemp
 
       !.. Executable statements
 
@@ -529,11 +531,22 @@ contains
                e_t=e_t-ham%ncoup(j,iflip_h,1)*sum(trialmom(:)*emomM(:,ham%nlist(j,iflip),k))
             end do
          else
+
+            btemp=0.0_dblprec
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
-            !$omp simd private(excscale) reduction(+:e_c,e_t)
+            !$omp simd reduction(+:btemp)
+#endif
+    	    do j = 1, ham%nlistsize(iflip_h)
+   	        btemp(:)=btemp(:)+emom(:,ham%nlist(j,iflip_h),k)
+    	    enddo
+            btemp(:)=btemp(:)/ham%nlistsize(iflip_h)
+   	    excscale=max(0.0_dblprec,sum(emom(:,iflip,k)*btemp(:)))
+
+#if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
+            !$omp simd reduction(+:e_c,e_t)
 #endif
             do j=1,ham%nlistsize(iflip_h)
-               excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!               excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
                e_c=e_c-(excscale*ham%ncoup(j,iflip_h,1)+(1.0_dblprec-excscale)*ham%ncoupD(j,iflip_h,1))*sum(emomM(:,iflip,k)*emomM(:,ham%nlist(j,iflip),k))
                e_t=e_t-(excscale*ham%ncoup(j,iflip_h,1)+(1.0_dblprec-excscale)*ham%ncoupD(j,iflip_h,1))*sum(trialmom(:)*emomM(:,ham%nlist(j,iflip),k))
             end do

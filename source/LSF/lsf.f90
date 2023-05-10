@@ -89,7 +89,7 @@ contains
       call rng_uniformP(flipprob_m,3*natom*mensemble)
       call rng_uniformP(rn,natom*mensemble*2)
       call rng_gaussianP(flipprob_g,3*natom*mensemble,1.0_dblprec)
-      iin=floor(3.0_dblprec*rn(:,:,1))
+      iin=floor(2.0_dblprec*rn(:,:,1))
 #ifdef VSL
       !$omp parallel do default(shared),private(i,k,newmom,newmmom),schedule(auto),collapse(2)
 #endif
@@ -98,20 +98,18 @@ contains
             if (iin(i,k)==0) then
                call choose_random_flip(emom,newmom,Natom,Mensemble,i,k,delta,flipprob_m(:,i,k),flipprob_g(:,i,k))
                newmom_a(1:3,i,k)=newmom(1:3)
-               newmmom_a(i,k) = mmom(i,k)
-            elseif(iin(i,k)==1) then
-               newmom_a(1:3,i,k)=emom(1:3,i,k)
                call vary_moment_magnitude(Nchmax,i,mmom(i,k),newmmom, &
                   ammom_hlim,ammom_llim,lsf_window,delta,rn(i,k,2))
                newmmom_a(i,k) = newmmom
-            elseif(iin(i,k)==2) then
+!            elseif(iin(i,k)==1) then
+!               newmom_a(1:3,i,k)=emom(1:3,i,k)
+!               call vary_moment_magnitude(Nchmax,i,mmom(i,k),newmmom, &
+!                  ammom_hlim,ammom_llim,lsf_window,delta,rn(i,k,2))
+!               newmmom_a(i,k) = newmmom
+            else
                call choose_random_flip(emom,newmom,Natom,Mensemble,i,k,delta,flipprob_m(:,i,k),flipprob_g(:,i,k))
                newmom_a(1:3,i,k)=newmom(1:3)
-               call vary_moment_magnitude(Nchmax,i,mmom(i,k),newmmom, &
-                  ammom_hlim,ammom_llim,lsf_window,delta,rn(i,k,2))
-               newmmom_a(i,k) = newmmom
-            else
-               write(*,*) 'ERROR'
+               newmmom_a(i,k) = mmom(i,k)
             endif
          enddo
       enddo
@@ -189,18 +187,18 @@ contains
       !.. Local scalars
       integer :: inttype              !< (0/1) pick the nearest grids or do interpolation
       integer :: i, j, iflip_h
-      real(dblprec) :: tt, tta, ttb, e_c, e_t, fc
+      real(dblprec) :: tt, tta, ttb, e_c, e_t, fc, excscale
 
       !.. Local arrays
       integer(dblprec),dimension(nchmax) :: counter     ! counting for every Nchtype
 
-      real(dblprec), dimension(3) :: beff_c,beff_t, trialmom
+      real(dblprec), dimension(3) :: beff_c,beff_t, trialmom,btemp
       real(dblprec), dimension(3) :: fs_beff_c, fs_beff_t  !< beff generated from first shell
 
       iflip_h=ham%aham(iflip)
       e_c=0.0_dblprec; e_t=0.0_dblprec; tt=0.0_dblprec; lsf_i=0.0_dblprec; beff_c=0.0_dblprec; beff_t=0.0_dblprec
       fc=mry/mub
-      fs_beff_c=0.0_dblprec; fs_beff_t=0.0_dblprec
+      fs_beff_c=0.0_dblprec; fs_beff_t=0.0_dblprec ; btemp=0.0_dblprec ; excscale=1.0_dblprec
       trialmom(:)=newmom(:)*newmmom
       inttype=1
       if (lsf_interpolate=='L') then
@@ -213,15 +211,15 @@ contains
       !-----------------------------
       !calculate B_i field
       !find the average of the another ch_type surrounded to the center m
-      nbsum(:) = 0.0_dblprec ; nbsumfield(:)=0.0_dblprec
+      nbsum(:) = 0.0_dblprec ; nbsumfield(:)=0.0_dblprec; btemp=0.0_dblprec
       counter(:) = 0 ; ammom_inter(:,:) = 0.0_dblprec 
 #if _OPENMP && ( defined __INTEL_COMPILER )
       !DIR$ LOOP COUNT min(8)
 #endif
       do j = 1, ham%nlistsize(iflip_h)
-         nbsum(achtype(ham%nlist(j,iflip))) = nbsum(achtype(ham%nlist(j,iflip))) &
-            + mmom(ham%nlist(j,iflip),k)
-         counter(achtype(ham%nlist(j,iflip))) = counter(achtype(ham%nlist(j,iflip))) + 1
+         nbsum(achtype(ham%nlist(j,iflip_h))) = nbsum(achtype(ham%nlist(j,iflip_h))) &
+            + mmom(ham%nlist(j,iflip_h),k)
+         counter(achtype(ham%nlist(j,iflip_h))) = counter(achtype(ham%nlist(j,iflip_h))) + 1
       enddo
       do i = 1,Nchmax
          if (counter(i) == 0) then
@@ -234,78 +232,72 @@ contains
       enddo
       ammom_inter(achtype(iflip),1) = mmom(iflip,k)
       ammom_inter(achtype(iflip),2) = newmmom
-      call do_interpolation_ncoup_and_lsf(Natom,Mensemble,Nchmax, &
-         ammom_inter,iflip,ncoup_i,lsf_i,k,inttype,exc_inter,achtype(iflip),emom,2)
-      ! effective field of the nearest neighbours surrounding site i
-      if (lsf_field == 'L') then
-         do j=1,ham%fs_nlistsize(iflip_h)
-            fs_ncoup_i(j,:) = ncoup_i(ham%nind(j,iflip),:)
-            fs_beff_c(:) = fs_beff_c(:) + fs_ncoup_i(j,1)*emomM(:,ham%fs_nlist(j,iflip),k)
-            fs_beff_t(:) = fs_beff_t(:) + fs_ncoup_i(j,2)*emomM(:,ham%fs_nlist(j,iflip),k)
-         enddo
+      
+      if (exc_inter=='Y') then
+    	  do j = 1, ham%nlistsize(iflip_h)
+   	        btemp(:)=btemp(:)+emom(:,ham%nlist(j,iflip_h),k)
+    	  enddo
+           btemp(:)=btemp(:)/ham%nlistsize(iflip_h)
+   	   excscale=max(0.0_dblprec,sum(emom(:,iflip,k)*btemp(:)))
       endif
+    	  
+      call do_interpolation_ncoup_and_lsf(Natom,Mensemble,Nchmax, &
+         ammom_inter,iflip,ncoup_i,lsf_i,k,inttype,exc_inter,excscale,achtype(iflip),emom,2)
       ! Find effective field surrounding site i
-
-!      if (exc_inter=='N') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
       !DIR$ LOOP COUNT min(8)
       !$omp simd reduction(+:beff_c,beff_t)
 #endif
          do j=1,ham%nlistsize(iflip_h)
-!            beff_c(:) = beff_c(:)+ ham%ncoup(j,iflip_h,11 )*emomM(:,ham%nlist(j,iflip),k)
-!            beff_t(:) = beff_t(:)+ ham%ncoup(j,iflip_h,11 )*emomM(:,ham%nlist(j,iflip),k)
-            beff_c(:) = beff_c(:)+ ncoup_i(j,1)*emomM(:,ham%nlist(j,iflip),k)
-            beff_t(:) = beff_t(:)+ ncoup_i(j,2)*emomM(:,ham%nlist(j,iflip),k)
+            beff_c(:) = beff_c(:)+ ncoup_i(j,1)*emomM(:,ham%nlist(j,iflip_h),k)
+            beff_t(:) = beff_t(:)+ ncoup_i(j,2)*emomM(:,ham%nlist(j,iflip_h),k)
+!            beff_c(:) = beff_c(:)+ ncoup_i(j,1)*(1.0_dblprec+lsf_i(2,1))*emomM(:,ham%nlist(j,iflip),k)
+!            beff_t(:) = beff_t(:)+ ncoup_i(j,2)*(1.0_dblprec+lsf_i(2,2))*emomM(:,ham%nlist(j,iflip),k)
          end do
-!     else
-!#if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
-!      !DIR$ LOOP COUNT min(8)
-!      !$omp simd
-!#endif
-!         do j=1,ham%nlistsize(iflip_h)
-!           beff_c(:)=beff_c(:)+((excscale*ham%ncoup(j,iflip_h,11 )+(1._dblprec-excscale)*ham%ncoupD(j,iflip_h,11 )))* &
-!               emomM(:,ham%nlist(j,iflip),k)
-!           beff_t(:)=beff_t(:)+((excscale*ham%ncoup(j,iflip_h,11 )+(1._dblprec-excscale)*ham%ncoupD(j,iflip_h,11 )))* &
-!               emomM(:,ham%nlist(j,iflip),k)
-!         enddo
-!      endif
 
       ! LSF energy + exchange
       if(lsf_field=='L') then
+          do j=1,ham%fs_nlistsize(iflip_h)
+            fs_ncoup_i(j,:) = ncoup_i(ham%nind(j,iflip_h),:)
+            fs_beff_c(:) = fs_beff_c(:) + fs_ncoup_i(j,1)*emomM(:,ham%fs_nlist(j,iflip_h),k)
+            fs_beff_t(:) = fs_beff_t(:) + fs_ncoup_i(j,2)*emomM(:,ham%fs_nlist(j,iflip_h),k)
+         enddo
          e_c=e_c+lsf_i(1,1)*fc-lsf_i(2,1)*sum(emomM(:,iflip,k)*fs_beff_c(:))
          e_t=e_t+lsf_i(1,2)*fc-lsf_i(2,2)*sum(trialmom(:)*fs_beff_t(:))
       else
+!         e_c=e_c+lsf_i(1,1)*fc-sum(emomM(:,iflip,k)*beff_c(:))
+!         e_t=e_t+lsf_i(1,2)*fc-sum(trialmom(:)*beff_t(:))
          e_c=e_c+lsf_i(1,1)*fc-lsf_i(2,1)*sum(emomM(:,iflip,k)*beff_c(:))
          e_t=e_t+lsf_i(1,2)*fc-lsf_i(2,2)*sum(trialmom(:)*beff_t(:))
       endif
       ! Anisotropy
       if (do_anisotropy==1) then
          ! Uniaxial anisotropy
-         if (ham%taniso(iflip)==1) then
-            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip))
-            ttb=sum(trialmom(:)*ham%eaniso(:,iflip))
-            e_c=e_c+ham%kaniso(1,iflip)*(tta**2)+ham%kaniso(2,iflip)*(tta**4)
-            e_t=e_t+ham%kaniso(1,iflip)*(ttb**2)+ham%kaniso(2,iflip)*(ttb**4)
+         if (ham%taniso(iflip_h)==1) then
+            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip_h))
+            ttb=sum(trialmom(:)*ham%eaniso(:,iflip_h))
+            e_c=e_c+ham%kaniso(1,iflip_h)*(tta**2)+ham%kaniso(2,iflip_h)*(tta**4)
+            e_t=e_t+ham%kaniso(1,iflip_h)*(ttb**2)+ham%kaniso(2,iflip_h)*(ttb**4)
             ! Cubic anisotropy
-         elseif (ham%taniso(iflip)==2) then
-            e_c=e_c+ham%kaniso(1,iflip)*(emomM(1,iflip,k)**2*emomM(2,iflip,k)**2+ &
+         elseif (ham%taniso(iflip_h)==2) then
+            e_c=e_c+ham%kaniso(1,iflip_h)*(emomM(1,iflip,k)**2*emomM(2,iflip,k)**2+ &
                emomM(2,iflip,k)**2*emomM(3,iflip,k)**2+emomM(3,iflip,k)**2*emomM(1,iflip,k)**2)+&
-               ham%kaniso(2,iflip)*(emomM(1,iflip,k)**2*emomM(2,iflip,k)**2*emomM(3,iflip,k)**2)
-               e_t=e_t+ham%kaniso(1,iflip)*(trialmom(1)**2*trialmom(2)**2+ &
+               ham%kaniso(2,iflip_h)*(emomM(1,iflip,k)**2*emomM(2,iflip,k)**2*emomM(3,iflip,k)**2)
+               e_t=e_t+ham%kaniso(1,iflip_h)*(trialmom(1)**2*trialmom(2)**2+ &
                trialmom(2)**2*trialmom(3)**2+trialmom(3)**2*trialmom(1)**2)+ &
-               ham%kaniso(2,iflip)*(trialmom(1)**2*trialmom(2)**2*trialmom(3)**2)
+               ham%kaniso(2,iflip_h)*(trialmom(1)**2*trialmom(2)**2*trialmom(3)**2)
          endif
          ! When both Cubic and Uniaxial are switched on
-         if (ham%taniso(iflip)==7) then
+         if (ham%taniso(iflip_h)==7) then
             ! Uniaxial anisotropy
-            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip))
-            ttb=sum(trialmom(:)*ham%eaniso(1,iflip))
-            e_c=e_c+ham%kaniso(1,iflip)*(tta**2)+ham%kaniso(2,iflip)*(tta**4)
-            e_t=e_t+ham%kaniso(1,iflip)*(ttb**2)+ham%kaniso(2,iflip)*(ttb**4)
+            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip_h))
+            ttb=sum(trialmom(:)*ham%eaniso(1,iflip_h))
+            e_c=e_c+ham%kaniso(1,iflip_h)*(tta**2)+ham%kaniso(2,iflip_h)*(tta**4)
+            e_t=e_t+ham%kaniso(1,iflip_h)*(ttb**2)+ham%kaniso(2,iflip_h)*(ttb**4)
 
             ! Cubic anisotropy
-            aw1=ham%kaniso(1,iflip)*ham%sb(iflip)
-            aw2=ham%kaniso(2,iflip)*ham%sb(iflip)
+            aw1=ham%kaniso(1,iflip_h)*ham%sb(iflip_h)
+            aw2=ham%kaniso(2,iflip_h)*ham%sb(iflip_h)
 
             e_c=e_c+aw1*(emomM(1,iflip,k)**2*emomM(2,iflip,k)**2+ &
             emomM(2,iflip,k)**2*emomM(3,iflip,k)**2+emomM(3,iflip,k)**2*emomM(1,iflip,k)**2)+&
@@ -359,14 +351,15 @@ contains
       !.. Local scalars
       integer :: inttype              !< (0/1) pick the nearest grids or do interpolation
       integer :: i, j, iflip_h
-      real(dblprec) :: tt, tta, fc, excscale, lsf_tf
+      real(dblprec) :: tt, tta, fc, lsf_tf , excscale
 
       !.. Local arrays
       integer(dblprec),dimension(nchmax) :: counter     ! counting for every Nchtype
       !    real(dblprec),dimension(3) :: excfield1,excfield2,lsffield
+      real(dblprec),dimension(3) :: btemp
 
       iflip_h=ham%aham(iflip)
-      tt=0.0_dblprec; totfield=0.0_dblprec
+      tt=0.0_dblprec; totfield=0.0_dblprec ; btemp=0.0_dblprec ; excscale=1.0_dblprec
       fc=mry/mub
       inttype=1
       if (lsf_interpolate=='L') then
@@ -380,7 +373,7 @@ contains
       !calculate B_i field
       !find the average of the another ch_type surrounded to the center m
       nbsum(:) = 0.0_dblprec; nbsumfield(:)=0.0_dblprec
-      counter(:) = 0 ; ammom_inter(:) = 0.0_dblprec ; excscale=1.0_dblprec
+      counter(:) = 0 ; ammom_inter(:) = 0.0_dblprec 
 #if _OPENMP && ( defined __INTEL_COMPILER )
       !DIR$ LOOP COUNT min(8)
 #endif
@@ -397,8 +390,18 @@ contains
          endif
       enddo
       ammom_inter(achtype(iflip)) = newmmom
+      
+      if (exc_inter=='Y') then
+    	  do j = 1, ham%nlistsize(iflip_h)
+   	        btemp(:)=btemp(:)+emom(:,ham%nlist(j,iflip_h),k)
+    	  enddo
+           btemp(:)=btemp(:)/ham%nlistsize(iflip_h)
+   	   excscale=max(0.0_dblprec,sum(emom(:,iflip,k)*btemp(:)))
+      endif
+      
+      
       call do_interpolation_ncoup_and_lsf_gradient(Natom,Mensemble,Nchmax, &
-         ammom_inter,iflip,ncoup_t,ncoup_tg,lsf_t,lsf_tf,k,inttype,exc_inter,achtype(iflip),emom)
+         ammom_inter,iflip,ncoup_t,ncoup_tg,lsf_t,lsf_tf,k,inttype,exc_inter,excscale,achtype(iflip),emom)
 
       ! Find effective field surrounding site i
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
@@ -416,45 +419,45 @@ contains
       ! Anisotropy
       if (do_anisotropy==1) then
          ! Uniaxial anisotropy  scaled down to match heatbath
-         if (ham%taniso(iflip)==1) then
-            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip))
+         if (ham%taniso(iflip_h)==1) then
+            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip_h))
 
             ! K1*(sin theta)^2
             totfield(1:3) = totfield(1:3)  &
-               - ham%kaniso(1,iflip)*tta*ham%eaniso(1:3,iflip) &
+               - ham%kaniso(1,iflip_h)*tta*ham%eaniso(1:3,iflip_h) &
                ! K2*(sin theta)^4
-               - ham%kaniso(2,iflip)*(tta**2)*tta*ham%eaniso(1:3,iflip)
+               - ham%kaniso(2,iflip_h)*(tta**2)*tta*ham%eaniso(1:3,iflip_h)
          ! Cubic anisotropy
-         elseif (ham%taniso(iflip)==2) then
+         elseif (ham%taniso(iflip_h)==2) then
             ! K1*(sin theta)^2
             totfield(1) = totfield(1) &
-               + 2*ham%kaniso(1,iflip)*emomM(1,iflip,k)*(emomM(2,iflip,k)**2+emomM(3,iflip,k)**2) &
-               + 2*ham%kaniso(2,iflip)+emomM(1,iflip,k)*emomM(2,iflip,k)**2*emomM(3,iflip,k)**2
+               + 2*ham%kaniso(1,iflip_h)*emomM(1,iflip,k)*(emomM(2,iflip,k)**2+emomM(3,iflip,k)**2) &
+               + 2*ham%kaniso(2,iflip_h)+emomM(1,iflip,k)*emomM(2,iflip,k)**2*emomM(3,iflip,k)**2
 
             totfield(2) = totfield(2) &
-               + 2*ham%kaniso(1,iflip)*emomM(2,iflip,k)*(emomM(3,iflip,k)**2+emomM(1,iflip,k)**2) &
-               + 2*ham%kaniso(2,iflip)+emomM(2,iflip,k)*emomM(3,iflip,k)**2*emomM(1,iflip,k)**2
+               + 2*ham%kaniso(1,iflip_h)*emomM(2,iflip,k)*(emomM(3,iflip,k)**2+emomM(1,iflip,k)**2) &
+               + 2*ham%kaniso(2,iflip_h)+emomM(2,iflip,k)*emomM(3,iflip,k)**2*emomM(1,iflip,k)**2
 
             totfield(3) = totfield(3) &
-               + 2*ham%kaniso(1,iflip)*emomM(3,iflip,k)*(emomM(1,iflip,k)**2+emomM(2,iflip,k)**2) &
-               + 2*ham%kaniso(2,iflip)+emomM(3,iflip,k)*emomM(1,iflip,k)**2*emomM(2,iflip,k)**2
+               + 2*ham%kaniso(1,iflip_h)*emomM(3,iflip,k)*(emomM(1,iflip,k)**2+emomM(2,iflip,k)**2) &
+               + 2*ham%kaniso(2,iflip_h)+emomM(3,iflip,k)*emomM(1,iflip,k)**2*emomM(2,iflip,k)**2
 
          endif
          ! When both Cubic and Uniaxial are switched on
-         if (ham%taniso(iflip)==7) then
+         if (ham%taniso(iflip_h)==7) then
 
             ! Uniaxial anisotropy
-            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip))
+            tta=sum(emomM(:,iflip,k)*ham%eaniso(:,iflip_h))
 
             ! K1*(sin theta)^2
             totfield(1:3) = totfield(1:3)  &
-               - ham%kaniso(1,iflip)*tta*ham%eaniso(1:3,iflip) &
+               - ham%kaniso(1,iflip_h)*tta*ham%eaniso(1:3,iflip_h) &
                ! K2*(sin theta)^4
-               - ham%kaniso(2,iflip)*(tta**2)*tta*ham%eaniso(1:3,iflip)
+               - ham%kaniso(2,iflip_h)*(tta**2)*tta*ham%eaniso(1:3,iflip_h)
                ! Cubic anisotropy
                ! K1*(sin theta)^2
-            aw1=ham%kaniso(1,iflip)*ham%sb(iflip)
-            aw2=ham%kaniso(2,iflip)*ham%sb(iflip)
+            aw1=ham%kaniso(1,iflip_h)*ham%sb(iflip_h)
+            aw2=ham%kaniso(2,iflip_h)*ham%sb(iflip_h)
             totfield(1) = totfield(1) &
                + 2*aw1*emomM(1,iflip,k)*(emomM(2,iflip,k)**2+emomM(3,iflip,k)**2) &
                + 2*aw2+emomM(1,iflip,k)*emomM(2,iflip,k)**2*emomM(3,iflip,k)**2
@@ -557,7 +560,7 @@ contains
       character(len=1),intent(in) :: exc_inter !< Interpolation of Jij between FM/DLM
       integer, intent(in) :: inttype !< Interpolatation type in LSF
       character(len=1), intent(in) :: lsf_field       !< LSF field contribution (Local/Total)
-      real(dblprec),dimension(10,natom,Mensemble),intent(inout) :: site_energy
+      real(dblprec),dimension(11,natom,Mensemble),intent(inout) :: site_energy
 
       !.. Subroutine output
       real(dblprec), dimension(Mensemble), intent(out) :: aenergy !< Anisotropy energy
@@ -567,7 +570,7 @@ contains
 
       !...Local variables
       integer :: i, j, k,i_h
-      real(dblprec) :: fcinv,fc
+      real(dblprec) :: fcinv,fc,excscale
       real(dblprec) :: ieenergy
 
       !...Local arrays
@@ -580,7 +583,7 @@ contains
       real(dblprec), dimension(Nchmax,1) :: ammom_inter  !< moments on grids of  each of the ch_type
       real(dblprec), dimension(ham%max_no_neigh,1) :: ncoup_i  !<interpolated ncoup only at flipping site
       real(dblprec), dimension(ham%max_no_neigh,1) :: fs_ncoup  !< first-shell  ncoup  on  flipping site
-      real(dblprec), dimension(3) :: fs_beff
+      real(dblprec), dimension(3) :: fs_beff, btemp
       integer(dblprec),dimension(nchmax) :: counter     ! counting for every Nchtype
 
       ! Factor for energy scale
@@ -588,16 +591,17 @@ contains
       fc = mry/mub
 
       !$omp parallel do default(shared),private(i,j,k,i_h,nbsum,counter,ammom_inter,lsfE, &
-      !$omp tempk1,tempk2,ncoup_i,ttv,tt,aeatom,ieenergy),&
+      !$omp tempk1,tempk2,ncoup_i,ttv,tt,aeatom,ieenergy,btemp,excscale),&
       !$omp reduction(+:lsfenergy,eenergy,aenergy,fenergy),schedule(auto),collapse(2)
       do i=1,natom
          do k=1,mensemble
             i_h=ham%aham(i)
-            nbsum(:) = 0.0_dblprec ; counter(:) = 0 ; ttv(:,:)=0.0_dblprec
+            nbsum(:) = 0.0_dblprec ; counter(:) = 0 ; ttv(:,:)=0.0_dblprec ; btemp(:)=0.0_dblprec
+            excscale=1.0_dblprec
             do j = 1, ham%nlistsize(i_h)
-               nbsum(achtype(ham%nlist(j,i))) = nbsum(achtype(ham%nlist(j,i))) &
-                  + mmom(ham%nlist(j,i),k)
-               counter(achtype(ham%nlist(j,i))) = counter(achtype(ham%nlist(j,i))) + 1
+               nbsum(achtype(ham%nlist(j,i_h))) = nbsum(achtype(ham%nlist(j,i_h))) &
+                  + mmom(ham%nlist(j,i_h),k)
+               counter(achtype(ham%nlist(j,i_h))) = counter(achtype(ham%nlist(j,i_h))) + 1
             enddo
             do j = 1,Nchmax
                if (counter(j) == 0) then
@@ -607,14 +611,23 @@ contains
                endif
             enddo
             ammom_inter(achtype(i),1) = mmom(i,k)
+            
+            if (exc_inter=='Y') then
+    	       do j = 1, ham%nlistsize(i_h)
+   	          btemp(:)=btemp(:)+emom(:,ham%nlist(j,i_h),k)
+    	       enddo
+               btemp(:)=btemp(:)/ham%nlistsize(i_h)
+   	       excscale=max(0.0_dblprec,sum(emom(:,i,k)*btemp(:)))
+            endif
+       	     
             call do_interpolation_ncoup_and_lsf(Natom,Mensemble,Nchmax, &
-               ammom_inter,i,ncoup_i,lsfE,k,inttype,exc_inter,achtype(i),emom,1)
+               ammom_inter,i,ncoup_i,lsfE,k,inttype,exc_inter,excscale,achtype(i),emom,1)
             !> effective field of the nearest neighbours surrounding site i
             if (lsf_field=='L') then
                fs_beff=0.0_dblprec
                do j=1,ham%fs_nlistsize(i_h)
-                  fs_ncoup(j,1) = ncoup_i(ham%nind(j,i),1)
-                  fs_beff(:) = fs_beff(:) + fs_ncoup(j,1)*emomM(:,ham%fs_nlist(j,i),k)
+                  fs_ncoup(j,1) = ncoup_i(ham%nind(j,i_h),1)
+                  fs_beff(:) = fs_beff(:) + fs_ncoup(j,1)*emomM(:,ham%fs_nlist(j,i_h),k)
                enddo
             end if
 !#if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422) && __INTEL_COMPILER >= 1800
@@ -622,13 +635,14 @@ contains
 !            !$omp simd reduction(+:ttv)
 !#endif
             do j = 1, ham%nlistsize(i_h)
-               ttv(:,k) = ttv(:,k)+ ncoup_i(j,1)*emomM(:,ham%nlist(j,i),k)
+               ttv(:,k) = ttv(:,k)+ ncoup_i(j,1)*emomM(:,ham%nlist(j,i_h),k)
             enddo
 
             lsfenergy(k)=lsfenergy(k)+2.0_dblprec*lsfE(1,1)*fc
             if (plotenergy==2) site_energy(9,i,k)=lsfE(1,1)*fc
             if (lsf_field=='T') then
                ieenergy=-lsfE(2,1)*sum(emomM(:,i,k)*ttv(:,k))
+!               ieenergy=-(1.0_dblprec+lsfE(2,1))*sum(emomM(:,i,k)*ttv(:,k))
                eenergy(k)=eenergy(k)+ieenergy
                if(plotenergy==2) site_energy(1,i,k)=0.5_dblprec*ieenergy
             else
@@ -641,20 +655,20 @@ contains
             fenergy(k)=fenergy(k)-sum(extfield(:,i,k)*emomM(:,i,k))
             if(plotenergy==2) site_energy(8,i,k)=-sum(extfield(:,i,k)*emomM(:,i,k))
 
-            if (ham%taniso(i)==1) then
+            if (ham%taniso(i_h)==1) then
                ! Calculate uniaxial anisotropy energy
-               tt(k) = ham%eaniso(1,i)*emomM(1,i,k)+ham%eaniso(2,i)*emomM(2,i,k)+ham%eaniso(3,i)*emomM(3,i,k)
-               aeatom(k) = (ham%kaniso(1,i)*tt(k)**2) + ham%kaniso(2,i)*(tt(k)**2)**2
+               tt(k) = ham%eaniso(1,i_h)*emomM(1,i,k)+ham%eaniso(2,i_h)*emomM(2,i,k)+ham%eaniso(3,i_h)*emomM(3,i,k)
+               aeatom(k) = (ham%kaniso(1,i_h)*tt(k)**2) + ham%kaniso(2,i_h)*(tt(k)**2)**2
                aenergy(k) = aenergy(k)+aeatom(k)
-               if(plotenergy==2) site_energy(7,i,k)=(ham%kaniso(1,i)*tt(k)**2) + ham%kaniso(2,i)*(tt(k)**2)**2
-            elseif (ham%taniso(i)==2) then
+               if(plotenergy==2) site_energy(7,i,k)=(ham%kaniso(1,i_h)*tt(k)**2) + ham%kaniso(2,i_h)*(tt(k)**2)**2
+            elseif (ham%taniso(i_h)==2) then
                ! Calculate cubic anisotropy energy
                tempk1(k) = emomM(1,i,k)**2*emomM(2,i,k)**2 + emomM(2,i,k)**2*emomM(3,i,k)**2 +&
                   emomM(3,i,k)**2*emomM(1,i,k)**2
                tempk2(k) = emomM(1,i,k)**2 * emomM(2,i,k)**2 * emomM(3,i,k)**2
-               aeatom(k) = -(ham%kaniso(1,i)*tempk1(k) + ham%kaniso(2,i)*tempk2(k))
+               aeatom(k) = -(ham%kaniso(1,i_h)*tempk1(k) + ham%kaniso(2,i_h)*tempk2(k))
                aenergy(k) = aenergy(k)+aeatom(k)
-               if(plotenergy==2) site_energy(7,i,k)=-(ham%kaniso(1,i)*tempk1(k) + ham%kaniso(2,i)*tempk2(k))
+               if(plotenergy==2) site_energy(7,i,k)=-(ham%kaniso(1,i_h)*tempk1(k) + ham%kaniso(2,i_h)*tempk2(k))
             endif
          enddo  ! End loop(Mensemble)
       enddo
@@ -776,7 +790,7 @@ contains
 
    !> Interpolation of LSF energy and exchange interactions to given moment size from existing grid
    subroutine do_interpolation_ncoup_and_lsf(Natom,Mensemble, Nchmax, ammom_inter, &
-                   iflip,itp_noup,obj,k,inttype,exc_inter,chemtype,emom,nstep)
+                   iflip,itp_noup,obj,k,inttype,exc_inter,excscale,chemtype,emom,nstep)
 
       !
       implicit none
@@ -790,7 +804,8 @@ contains
       real(dblprec), dimension(ham%max_no_neigh,nstep),intent(out) :: itp_noup  !< Interpolated ncoup
       real(dblprec),dimension(2,nstep), intent(out) :: obj !< the thing to be interpolated (possibly LSF_energy)
       integer, intent(in) :: inttype !< (0/1) pick the nearest grids or do interpolation
-      character(len=1),intent(in) :: exc_inter !< Exchange rescaling
+      character(len=1),intent(in) :: exc_inter !< Exchange rescaling Y/N
+      real(dblprec),intent(in) :: excscale !< Interpolaton parameter FM/DLM
       integer,intent(in) :: chemtype !< Chemical type of the trial moment
       real(dblprec), dimension(3,Natom,Mensemble), intent(in) :: emom   !< Current unit moment vector
       integer,intent(in) :: nstep
@@ -801,7 +816,7 @@ contains
       real(dblprec),dimension(4) :: temp
       real(dblprec) :: invtemp
       real(dblprec), dimension(ham%max_no_neigh,nstep) :: tmp_noup  !< Interpolated ncoup
-      real(dblprec) :: excscale !< Interpolaton parameter FM/DLM
+     
 
       iflip_h=ham%aham(iflip)
       do istep=1,nstep
@@ -825,16 +840,14 @@ contains
                elseif (exc_inter=='Y') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
                   !dir$ loop count min(8)
-                  !$omp simd private(excscale)
+!                  !$omp simd private(excscale)
 #endif
                   do j=1,ham%nlistsize(iflip_h)
-                     excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
-                     itp_noup(j,istep)=(ham%ncoupD(j,iflip_h,ac(1))+ &
-                        excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1))))+ &
-                        invtemp*((ham%ncoupD(j,iflip_h,ac(2))+ &
-                        excscale*(ham%ncoup(j,iflip_h,ac(2))-ham%ncoupD(j,iflip_h,ac(2))))- &
-                        (ham%ncoupD(j,iflip_h,ac(1))+excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1)))) &
-                                        )
+!                     excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
+                     itp_noup(j,istep) = ((1.0_dblprec-excscale)*(1.0_dblprec-invtemp))*ham%ncoupD(j,iflip_h,ac(1))+&
+                        excscale*(1.0_dblprec-invtemp)*ham%ncoup(j,iflip_h,ac(1))+&
+                        invtemp*(1.0_dblprec-excscale)*ham%ncoupD(j,iflip_h,ac(2))+&
+                        excscale*invtemp*ham%ncoup(j,iflip_h,ac(2))
                   enddo
                   obj(:,istep)=LSF_energy(ac(1),:)+invtemp*(LSF_energy(ac(2),:)-LSF_energy(ac(1),:))
                endif
@@ -877,10 +890,10 @@ contains
                elseif (exc_inter=='Y') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
                   !dir$ loop count min(8)
-                  !$omp simd private(excscale)
+!                  !$omp simd private(excscale)
 #endif
                   do j=1,ham%nlistsize(iflip_h)
-                     excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!                     excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
                      itp_noup(j,istep)=(ham%ncoup(j,iflip_h,ac(1))*temp(1)+ham%ncoup(j,iflip_h,ac(2))*temp(2))*temp(3)+ &
                         (ham%ncoup(j,iflip_h,ac(3))*temp(1)+ham%ncoup(j,iflip_h,ac(4))*temp(2))*temp(4)
 
@@ -924,10 +937,10 @@ contains
             elseif (exc_inter=='Y') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
                !dir$ loop count min(8)
-               !$omp simd private(excscale)
+!               !$omp simd private(excscale)
 #endif
                do j=1,ham%nlistsize(iflip_h)
-                  excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!                  excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
                   itp_noup(j,istep)=(ham%ncoupD(j,iflip_h,ac(1))+ &
                      excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1))))*temp(1)
                   tmp_noup(j,istep)=(ham%ncoupD(j,iflip_h,ac(2))+ &
@@ -971,10 +984,10 @@ contains
             elseif (exc_inter=='Y') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
                !dir$ loop count min(8)
-               !$omp simd private(excscale)
+!               !$omp simd private(excscale)
 #endif
                do j=1,ham%nlistsize(iflip_h)
-                  excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!                  excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
                   itp_noup(j,istep)= &
                      (ham%ncoupD(j,iflip_h,iconf)+excscale*(ham%ncoup(j,iflip_h,iconf)-ham%ncoupD(j,iflip_h,iconf))) &
                          *invtemp
@@ -988,7 +1001,7 @@ contains
 
    !> Interpolation of LSF energy and exchange interactions to given moment size from existing grid
    subroutine do_interpolation_ncoup_and_lsf_gradient(Natom,Mensemble,Nchmax,ammom_inter, &
-         iflip,itp_noup,itp_noupg,obj,lsff,k,inttype,exc_inter,chemtype,emom)
+         iflip,itp_noup,itp_noupg,obj,lsff,k,inttype,exc_inter,excscale,chemtype,emom)
 
       !
       implicit none
@@ -1005,6 +1018,7 @@ contains
       real(dblprec), intent(out) :: lsff !< lsf field
       integer, intent(in) :: inttype !< (0/1) pick the nearest grids or do interpolation
       character(len=1),intent(in) :: exc_inter !< Exchange rescaling
+      real(dblprec),intent(in) :: excscale !< Interpolaton parameter FM/DLM
       integer,intent(in) :: chemtype !< Chemical type of the trial moment
       real(dblprec), dimension(3,Natom,Mensemble), intent(in) :: emom   !< Current unit moment vector
       !local variables
@@ -1014,7 +1028,8 @@ contains
       integer :: i, j, iconf, ii, jj, iflip_h
       real(dblprec),dimension(4) :: temp
       real(dblprec) :: invtemp,invtemp2
-      real(dblprec) :: excscale !< Interpolaton parameter FM/DLM
+     
+      
 
       iflip_h=ham%aham(iflip)
 
@@ -1040,21 +1055,17 @@ contains
             elseif (exc_inter=='Y') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
                !dir$ loop count min(8)
-               !$omp simd private(excscale)
+!               !$omp simd private(excscale)
 #endif
                do j=1,ham%nlistsize(iflip_h)
-                  excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
-                  itp_noup(j)= &
-                     (ham%ncoupD(j,iflip_h,ac(1))+excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1))))+ &
-                     invtemp*(  &
-                     (ham%ncoupD(j,iflip_h,ac(2))+excscale*(ham%ncoup(j,iflip_h,ac(2))-ham%ncoupD(j,iflip_h,ac(2))))- &
-                     (ham%ncoupD(j,iflip_h,ac(1))+excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1)))) &
-                             )
+ !                 excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
+                  itp_noup(j) = ((1.0_dblprec-excscale)*(1.0_dblprec-invtemp))*ham%ncoupD(j,iflip_h,ac(1))+&
+                        excscale*(1.0_dblprec-invtemp)*ham%ncoup(j,iflip_h,ac(1))+&
+                        invtemp*(1.0_dblprec-excscale)*ham%ncoupD(j,iflip_h,ac(2))+&
+                        excscale*invtemp*ham%ncoup(j,iflip_h,ac(2))
                   itp_noupg(j)= &
                      invtemp2*( &
-                     (ham%ncoupD(j,iflip_h,ac(2))+excscale*(ham%ncoup(j,iflip_h,ac(2))-ham%ncoupD(j,iflip_h,ac(2))))- &
-                     (ham%ncoupD(j,iflip_h,ac(1))+excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1)))) &
-                               )
+                     (ham%ncoupD(j,iflip_h,ac(2))+excscale*(ham%ncoup(j,iflip_h,ac(2))-ham%ncoupD(j,iflip_h,ac(2)))))
                enddo
                obj(:)=LSF_energy(ac(1),:)+invtemp*(LSF_energy(ac(2),:)-LSF_energy(ac(1),:))
                lsff=-invtemp2*(LSF_energy(ac(2),1)-LSF_energy(ac(1),1))
@@ -1106,10 +1117,10 @@ contains
 
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
                !dir$ loop count min(8)
-               !$omp simd private(excscale)
+!               !$omp simd private(excscale)
 #endif
                do j=1,ham%nlistsize(iflip_h)
-                  excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!                  excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
                   itp_noup(j)= &
                      ((ham%ncoupD(j,iflip_h,ac(1))+excscale*(ham%ncoup(j,iflip_h,ac(1))-ham%ncoupD(j,iflip_h,ac(1)))) &
                          *temp(1)+ &
@@ -1190,10 +1201,10 @@ contains
          elseif (exc_inter=='Y') then
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
             !dir$ loop count min(8)
-            !$omp simd private(excscale)
+!            !$omp simd private(excscale)
 #endif
             do j=1,ham%nlistsize(iflip_h)
-               excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!               excscale=max(0.0_dblprec,sum(emom(:,ham%nlist(j,iflip_h),k)*emom(:,iflip,k)))
                itp_noup(j)=(ham%ncoupD(j,iflip_h,iconf)+excscale*(ham%ncoup(j,iflip_h,iconf)-ham%ncoupD(j,iflip_h,iconf)))*invtemp
                ! approx gradient on the moment square boundary for now
                itp_noupg(j)=invtemp2*( (ham%ncoupD(j,iflip_h,indp(2))+excscale*(ham%ncoup(j,iflip_h,indp(2))- &

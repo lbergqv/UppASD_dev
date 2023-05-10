@@ -350,7 +350,7 @@ contains
       real(dblprec) :: sxy, syz, szx
       integer :: im1,im2,ip1,ip2
 
-      real(dblprec), dimension(3) :: fbef,faft
+      real(dblprec), dimension(3) :: fbef,faft,btemp
       !.. Executable statements
 
       ! First calculate effective field
@@ -365,12 +365,20 @@ contains
             totfield(:) = totfield(:)+ ham%ncoup(j,iflip_ham,1)*emomM(:,ham%nlist(j,iflip),k)
          end do
       else
-         totfield=0.0_dblprec
+         totfield=0.0_dblprec ; btemp=0.0_dblprec
+#if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422)
+            !$omp simd reduction(+:btemp)
+#endif
+    	    do j = 1, ham%nlistsize(iflip_ham)
+   	        btemp(:)=btemp(:)+emom(:,ham%nlist(j,iflip_ham),k)
+    	    enddo
+            btemp(:)=btemp(:)/ham%nlistsize(iflip_ham)
+   	    excscale=max(0.0_dblprec,sum(emom(:,iflip,k)*btemp(:)))
 #if _OPENMP >= 201307 && ( ! defined __INTEL_COMPILER_BUILD_DATE || __INTEL_COMPILER_BUILD_DATE > 20140422) && __INTEL_COMPILER < 1800
-         !$omp simd private(excscale) reduction(+:totfield)
+         !$omp simd reduction(+:totfield)
 #endif
          do j=1,ham%nlistsize(iflip_ham)
-            excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
+!            excscale=abs(sum(emom(:,ham%nlist(j,iflip),k)*emom(:,iflip,k)))
             totfield(:)=totfield(:)+((excscale*ham%ncoup(j,iflip_ham,1)+(1.0_dblprec-excscale)*ham%ncoupD(j,iflip_ham,1)))*emomM(:,ham%nlist(j,iflip),k)
          end do
       endif

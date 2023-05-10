@@ -60,7 +60,7 @@ CXXLIBFLAGS = -L${GCCPATH} -lstdc++ -qopenmp
 IFORTVER := $(shell $(FC) --version | sed 's/\./ /;s/ //;s/[^ ]* *//;s/ .*//;q')
 # Then use -openmp if IFORTVER <= 14.x; otherwise use -qopenmp
 ifneq ($(shell test $(IFORTVER) -gt 14; echo $$?),0)
-FCOMPFLAGS = -openmp -openmp-simd
+FCOMPFLAGS = -qopenmp -qopenmp-simd
 else
 FCOMPFLAGS = -qopenmp -qno-openmp-simd
 endif
@@ -70,7 +70,7 @@ endif
 # -lblas       Basic Linear Algebra Subprograms
 # -llapack     Linear Algebra Package (for eigenvalue, cholesky etc...)
 # -lmkl        Includes lapack and blas
-FLIBFLAGS = -mkl=parallel
+FLIBFLAGS = -qmkl=parallel
 
 # ifort mod folder flag (used to put .mods in separate files)
 FCMODFLAG = -module
