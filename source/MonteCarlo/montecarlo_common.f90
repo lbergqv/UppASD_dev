@@ -416,6 +416,10 @@ contains
          zcphi=zfc(1)/(zarg*zstheta)
          zsphi=zfc(2)/(zarg*zstheta)
       endif
+      ! add tolerance so zstheta is never zero - that could result in NaNs because we divide by it later
+      zstheta=sqrt(1.0_dblprec-zctheta*zctheta)+dbl_tolerance
+      zcphi=zfc(1)/(zarg*zstheta)
+      zsphi=zfc(2)/(zarg*zstheta)
       !ctheta=1.50_dblprec
       !do while (abs(ctheta)>1.0_dblprec)
       !   call rng_uniform(q,1)
