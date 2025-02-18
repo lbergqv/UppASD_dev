@@ -10,7 +10,7 @@
 module LSF
    use Parameters
    use Profiling
-   use inputdata, only : ammom_inp,nch
+   use inputdata, only : ammom_inp,nch,ham_inp
    use ChemicalData, only : achtype
    use HamiltonianData, only : ham
 
@@ -655,20 +655,23 @@ contains
             fenergy(k)=fenergy(k)-sum(extfield(:,i,k)*emomM(:,i,k))
             if(plotenergy==2) site_energy(8,i,k)=-sum(extfield(:,i,k)*emomM(:,i,k))
 
-            if (ham%taniso(i_h)==1) then
-               ! Calculate uniaxial anisotropy energy
-               tt(k) = ham%eaniso(1,i_h)*emomM(1,i,k)+ham%eaniso(2,i_h)*emomM(2,i,k)+ham%eaniso(3,i_h)*emomM(3,i,k)
-               aeatom(k) = (ham%kaniso(1,i_h)*tt(k)**2) + ham%kaniso(2,i_h)*(tt(k)**2)**2
-               aenergy(k) = aenergy(k)+aeatom(k)
-               if(plotenergy==2) site_energy(7,i,k)=(ham%kaniso(1,i_h)*tt(k)**2) + ham%kaniso(2,i_h)*(tt(k)**2)**2
-            elseif (ham%taniso(i_h)==2) then
-               ! Calculate cubic anisotropy energy
-               tempk1(k) = emomM(1,i,k)**2*emomM(2,i,k)**2 + emomM(2,i,k)**2*emomM(3,i,k)**2 +&
-                  emomM(3,i,k)**2*emomM(1,i,k)**2
-               tempk2(k) = emomM(1,i,k)**2 * emomM(2,i,k)**2 * emomM(3,i,k)**2
-               aeatom(k) = -(ham%kaniso(1,i_h)*tempk1(k) + ham%kaniso(2,i_h)*tempk2(k))
-               aenergy(k) = aenergy(k)+aeatom(k)
-               if(plotenergy==2) site_energy(7,i,k)=-(ham%kaniso(1,i_h)*tempk1(k) + ham%kaniso(2,i_h)*tempk2(k))
+            if (ham_inp%do_anisotropy==1) then
+
+               if (ham%taniso(i_h)==1) then
+                  ! Calculate uniaxial anisotropy energy
+                  tt(k) = ham%eaniso(1,i_h)*emomM(1,i,k)+ham%eaniso(2,i_h)*emomM(2,i,k)+ham%eaniso(3,i_h)*emomM(3,i,k)
+                  aeatom(k) = (ham%kaniso(1,i_h)*tt(k)**2) + ham%kaniso(2,i_h)*(tt(k)**2)**2
+                  aenergy(k) = aenergy(k)+aeatom(k)
+                  if(plotenergy==2) site_energy(7,i,k)=(ham%kaniso(1,i_h)*tt(k)**2) + ham%kaniso(2,i_h)*(tt(k)**2)**2
+               elseif (ham%taniso(i_h)==2) then
+                  ! Calculate cubic anisotropy energy
+                  tempk1(k) = emomM(1,i,k)**2*emomM(2,i,k)**2 + emomM(2,i,k)**2*emomM(3,i,k)**2 +&
+                     emomM(3,i,k)**2*emomM(1,i,k)**2
+                  tempk2(k) = emomM(1,i,k)**2 * emomM(2,i,k)**2 * emomM(3,i,k)**2
+                  aeatom(k) = -(ham%kaniso(1,i_h)*tempk1(k) + ham%kaniso(2,i_h)*tempk2(k))
+                  aenergy(k) = aenergy(k)+aeatom(k)
+                  if(plotenergy==2) site_energy(7,i,k)=-(ham%kaniso(1,i_h)*tempk1(k) + ham%kaniso(2,i_h)*tempk2(k))
+               endif
             endif
          enddo  ! End loop(Mensemble)
       enddo
